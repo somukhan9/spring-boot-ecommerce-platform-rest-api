@@ -1,0 +1,39 @@
+server:
+  port: 8081
+  error:
+    include-message: never
+    include-stacktrace: never
+
+spring:
+  application:
+    name: auth-service
+  datasource:
+    url: ${DB_URL:jdbc:postgresql://localhost:5432/authdb}
+    username: ${DB_USERNAME:auth_svc}
+    password: ${DB_PASSWORD}
+  jpa:
+    open-in-view: false
+    hibernate:
+      ddl-auto: update          # dev convenience - use Flyway/Liquibase in production
+    properties:
+      hibernate.default_batch_fetch_size: 50
+  data:
+    web:
+      pageable:
+        max-page-size: 100
+
+app:
+  security:
+    jwt-secret: ${JWT_SECRET}                 # signs user access tokens (auth-service + gateway only)
+    internal-secret: ${INTERNAL_SECRET}       # verifies gateway-minted internal tokens
+    access-token-ttl-seconds: 900             # 15 min
+    refresh-token-ttl-days: 7
+  bootstrap-admin:
+    email: ${ADMIN_EMAIL:}
+    password: ${ADMIN_PASSWORD:}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

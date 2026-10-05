@@ -1,0 +1,59 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: api-gateway
+  cloud:
+    gateway:
+      httpclient:
+        connect-timeout: 2000
+        response-timeout: 10s
+      globalcors:
+        cors-configurations:
+          '[/**]':
+            allowedOrigins: ${CORS_ORIGINS:http://localhost:3000}
+            allowedMethods: GET,POST,PUT,PATCH,DELETE,OPTIONS
+            allowedHeaders: Authorization,Content-Type
+            maxAge: 3600
+      routes:
+        # Only these prefixes are routable. /internal/** has no route => unreachable from outside.
+        - id: auth-service
+          uri: ${AUTH_SERVICE_URL:http://localhost:8081}
+          predicates:
+            - Path=/api/auth/**,/api/admin/**
+        - id: product-service
+          uri: ${PRODUCT_SERVICE_URL:http://localhost:8082}
+          predicates:
+            - Path=/api/products/**
+          filters:
+            - name: Retry            # idempotent reads only
+              args:
+                retries: 2
+                methods: GET
+                statuses: BAD_GATEWAY,SERVICE_UNAVAILABLE
+                backoff:
+                  firstBackoff: 50ms
+                  maxBackoff: 500ms
+                  factor: 2
+        - id: order-service
+          uri: ${ORDER_SERVICE_URL:http://localhost:8083}
+          predicates:
+            - Path=/api/orders/**
+
+app:
+  security:
+    jwt-secret: ${JWT_SECRET}
+    internal-secret: ${INTERNAL_SECRET}
+    internal-token-ttl-seconds: 60
+
+gateway:
+  rate-limit:
+    general-per-minute: 120     # per client IP
+    auth-per-minute: 10         # login / register / refresh (brute-force protection)
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health

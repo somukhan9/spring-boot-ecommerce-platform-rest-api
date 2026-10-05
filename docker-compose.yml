@@ -1,0 +1,78 @@
+name: ecommerce
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_ADMIN_PASSWORD:?set in .env}
+      AUTH_DB_PASSWORD: ${AUTH_DB_PASSWORD:?set in .env}
+      PRODUCT_DB_PASSWORD: ${PRODUCT_DB_PASSWORD:?set in .env}
+      ORDER_DB_PASSWORD: ${ORDER_DB_PASSWORD:?set in .env}
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ./docker/init-db.sh:/docker-entrypoint-initdb.d/init-db.sh:ro
+    networks: [backend]            # no published port: only services can reach the database
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  auth-service:
+    build: { context: ., args: { SERVICE: auth-service } }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/authdb
+      DB_USERNAME: auth_svc
+      DB_PASSWORD: ${AUTH_DB_PASSWORD}
+      JWT_SECRET: ${JWT_SECRET:?set in .env}
+      INTERNAL_SECRET: ${INTERNAL_SECRET:?set in .env}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:-}
+    expose: ["8081"]               # reachable only on the internal network
+    networks: [backend]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  product-service:
+    build: { context: ., args: { SERVICE: product-service } }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/productdb
+      DB_USERNAME: product_svc
+      DB_PASSWORD: ${PRODUCT_DB_PASSWORD}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+    expose: ["8082"]
+    networks: [backend]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  order-service:
+    build: { context: ., args: { SERVICE: order-service } }
+    environment:
+      DB_URL: jdbc:postgresql://postgres:5432/orderdb
+      DB_USERNAME: order_svc
+      DB_PASSWORD: ${ORDER_DB_PASSWORD}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      PRODUCT_SERVICE_URL: http://product-service:8082
+    expose: ["8083"]
+    networks: [backend]
+    depends_on: { postgres: { condition: service_healthy } }
+
+  api-gateway:
+    build: { context: ., args: { SERVICE: api-gateway } }
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      INTERNAL_SECRET: ${INTERNAL_SECRET}
+      AUTH_SERVICE_URL: http://auth-service:8081
+      PRODUCT_SERVICE_URL: http://product-service:8082
+      ORDER_SERVICE_URL: http://order-service:8083
+      CORS_ORIGINS: ${CORS_ORIGINS:-http://localhost:3000}
+    ports: ["8080:8080"]           # the ONLY published port in the whole stack
+    networks: [backend, edge]
+    depends_on: [auth-service, product-service, order-service]
+
+networks:
+  backend:
+    internal: true                 # no outbound internet, no host access
+  edge: {}
+
+volumes:
+  pgdata:
